@@ -1,0 +1,295 @@
+---
+title: "Ejercicio1_ModeloLOGIT"
+authors: "Paul Camacho, Andres Yañez"
+date: "6/01/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Ejercicio
+
+## Configuración inical
+### Librerias
+
+```{r import libraries, message=FALSE, warning=FALSE}
+library(MASS)
+library(tseries)
+library(stats)
+library(car)
+library(pROC)
+library(plotmo)
+library(plotrix)
+library(earth)
+library(TeachingDemos)
+library(terra)
+library(carData)
+library(corrplot)
+library(Hmisc)
+library(lattice)
+library(Formula)
+library(ggplot2)
+library(earth)
+library(plotmo)
+library(plotrix)
+library(TeachingDemos)
+library(betareg)
+library(mfx)
+library(gamlss)
+library(normtest)
+```
+
+### Importamos el dataset 
+
+```{r import dataset, message=TRUE, warning=FALSE}
+df <- read.csv("http://www-eio.upc.edu/~pau/cms/rdata/csv/COUNT/affairs.csv")
+```
+
+
+## variables
+naffairs: number of affairs within last year. 
+kids: 1=have children;0= no children. 
+vryunhap: (1/0) very unhappily married. 
+unhap: (1/0) unhappily married. 
+avgmarr: (1/0) average married. 
+hapavg: (1/0) happily married. 
+vryhap: (1/0) very happily married. 
+antirel: (1/0) anti religious. 
+notrel: (1/0) not religious. 
+slghtrel: (1/0) slightly religious. 
+smerel: (1/0) somewhat religious. 
+vryrel: (1/0) very religious. 
+yrsmarr1: (1/0) >0.75 yrs. 
+yrsmarr2: (1/0) >1.5 yrs. 
+yrsmarr3: (1/0) >4.0 yrs. 
+yrsmarr4: (1/0) >7.0 yrs. 
+yrsmarr5: (1/0) >10.0 yrs. 
+yrsmarr6: (1/0) >15.0 yrs.
+
+### Revisamos algunas caracteristicas de la data 
+Observamos que el dataframe contiene 601 observaciones y 19 variables tipo int.
+
+```{r exploring data,  message=FALSE, warning=FALSE}
+print(str(df))
+```
+
+### Correlación
+Correlacionamos las variables para encontrar relación entre ellas.
+
+```{r correlación entre variables, message=FALSE, warning=FALSE}
+res <- rcorr(as.matrix(df))
+res$r
+```
+
+# Ejercicio 1. 
+¿Cuáles son las variables que definen la probabilidad de ser o no infiel? 
+
+#### Respuesta:
+#### Después de iterar por varias combinaciones de variables, considserando sus correlacioens y nivel de significancia estadística, llegamos a un modelo que consiera el numero de hijos y solo una variable de las categorías religiosidad y felicidad del matrimonio. 
+### y~ kids + notrel + unhap 
+### En el presente trabajo se ha resuelto un modelo que incluye todas las variables y otro modelo cuyas variables han sido seleccionadas por su p-value y su coeficiente de correlación.
+
+#### primero creamos la variable dicotomica de infidelidad "unfaithful". 
+```{r modelo saturado, message=FALSE, warning=FALSE }
+df$unfaithful <- ifelse(df$naffairs>0, 1, 0)
+head(df)
+```
+
+#### Generamos modelos
+```{r Modelo PROBIT, message=FALSE, warning=FALSE}
+# fórmulas
+# en la primera eliminamos un elemento de cada variable 
+fml.full <- as.formula("unfaithful~kids+vryunhap+unhap+avgmarr+hapavg+antirel+notrel+slghtrel+smerel+yrsmarr1+yrsmarr2+yrsmarr3+yrsmarr4+yrsmarr5") 
+# en el segundo dejamos solo una variable de cada categoría
+fml.mini <- as.formula("unfaithful~kids+unhap+notrel") 
+# modelos
+model.probit.full <- glm(fml.full, data=df, family=binomial(link="probit"))
+model.probit.mini <- glm(fml.mini, data=df, family=binomial(link="probit"))
+
+summary(model.probit.full)
+summary(model.probit.mini)
+
+with(summary(model.probit.full), 1 - deviance/null.deviance)
+with(summary(model.probit.small), 1 - deviance/null.deviance)
+
+```
+# Ejercicio 2.
+Realizad un modelo de conteos de infidelidades. ¿Son las mismas variables las que afectan respecto al modelo anterior? 
+
+#### Respuesta:  Para conteo de infidelidades lo apropiado es utilizar el modelo de poisson, donde la variable dependiente es "naffairs" porque se trata de conteos. Las variables dependientes son si tiene hijos, una variable de la categoría de felicidad, una de religiosidad y otra de años de matrimonio. Esta vez sí debemos considerar el número de años porque se trata de conteos en el tiempo. 
+
+#### Probamos con dos modelos. Una fórmula con y otra sin años.
+```{r}
+fml.poisson.medium <- as.formula("naffairs~ kids+unhap+notrel+yrsmarr1")
+fml.poisson.small  <- as.formula("naffairs~ kids+unhap+notrel") 
+```
+
+#### Creamos los modelos, esta vez debemos aplicar poisson porque se trata de conteos
+```{r}
+model.poisson.medium <- glm(fml.poisson.medium, data=df, family=poisson(link="identity"))
+model.poisson.small  <- glm(fml.poisson.small,  data=df, family=poisson(link="identity"))
+```
+
+#### Evaluamos los modelos y nos quedamos con el primero en base a su AIC. Además podemos verificar que en el primer  modelo todas las variables propuestas son estadístimente significativas por lo tanto debemos aplicar years.
+```{r}
+summary(model.poisson.medium)
+summary(model.poisson.small)
+with(summary(model.poisson.medium), 1 - deviance/null.deviance)
+with(summary(model.poisson.small ), 1 - deviance/null.deviance)
+model.poisson.medium$deviance
+model.poisson.small$deviance
+```
+
+#####  Ejercicio 3. 
+Argumentad la razón por la que no podemos incluir todas las variables yrsmarr dentro del modelo. 
+
+#### Respuesta.
+#### La razón por la la cual no podemos incluir todas las variables yrsmarr, años de matrimonio, es por factores colineales. En este caso tenemos 6 variables las cuales generan una deficiencia de rango. Por ende, cuando expresemos el output con 2 a más variables yrs,  R nos dará una advertencia de sobreajuste en el modelo, lo cual no generará predicciones confiables y/o especificas. El mismo fenomeno se presenta en las variables "rel" y "hap", que miden el nivel de la religiosidad y felicidad del matrimonio.
+
+
+
+#### Ejercicio 4.
+Calculad la frecuencia de infidelidades de una persona con más de 10 años de matrimonio, no-religioso, sin hijos. Sin saber el grado de satisfacción con el matrimonio. 
+
+#### Respuesta.
+#### Generamos el modelo y vector de predictores de acuerdo al enunciado de la pregunta. 
+
+sin hijos > kids = 0
+no-religioso > notrel =1
+10 años de matrimonio > yrsmarr5 = 1
+
+#### Bajo el siguiente modelo encontramos que, la  frecuencia de una persona infiel con las variables más de 10 años de matrimonio, no religioso y sin hijos arroja 1.39, pero lo redondeamos hacia arriba hasta 2, porque las infidelidades no pueden ser fracciones. 
+
+```{r}
+
+# formula
+fml.poisson <- as.formula("naffairs~ kids+notrel+yrsmarr5")
+# modelo
+model.poisson <- glm(fml.poisson, data=df, family=poisson(link="identity"))
+
+# Multiplicamos las matrices para encontrar el valor de nuestra variable dependendiente
+values <- as.matrix(c(1,0,1,1))
+t(as.matrix(model.poisson$coefficients))%*%values
+
+```
+
+# Ejercicio 5.
+¿Podríais calcular el 95% de confianza de la estimación anterior? 
+
+#### Respuesta
+#### El intervalo de confianza nos da un rango que va desde -5.3 hasta 8.0. Por lo tanto se mueve entre 0 y 8 infidelidades 
+
+```{r}
+
+# formula
+fml.poisson <- as.formula("naffairs~ kids+notrel+yrsmarr5")
+# modelo
+model.poisson <- glm(fml.poisson, data=df, family=poisson(link="identity"))
+# valores
+values <- as.matrix(c(1,0,1,1))
+
+bbdd <- cbind(df$kids, df$notrel, df$yrsmarr5)
+SCR <-  sum((df$naffairs-t(as.matrix(model.poisson$coefficients))%*%t(as.matrix(cbind(1,bbdd))))**2)
+
+bbdd2 <- dplyr::select(df, naffairs, kids, notrel, yrsmarr5)
+bbdd2$kids <- bbdd2$kids-0
+bbdd2$notrel <- bbdd2$notrel-1
+bbdd2$yrsmarr5 <- bbdd2$yrsmarr5-1
+
+model.t <-lm(formula = naffairs~kids+notrel+yrsmarr5, data = bbdd2)
+standard.error <- summary(model.t)$coef[,2][1]
+
+t(as.matrix(model.poisson$coefficients))%*%values+2*(standard.error**2+(SCR/(nrow(df)-5)))**0.5
+t(as.matrix(model.poisson$coefficients))%*%values-2*(standard.error**2+(SCR/(nrow(df)-5)))**0.5
+
+```
+
+# Ejercicio 6.
+Calculad, bajo qué nivel de confianza, los residuos de la distribución pueden considerarse normales.
+
+#### Aplicamos test de Jarque-Bera para confirmar normalidad de los residuos
+#### p-value es pequenísimo (p-value < 2.2e-16), por lo tanto es estadísticamente significativo. Rechazamos la hipotesis nula. Los residuos NO tienen distribucion normal!.
+
+
+```{r}
+
+# formula
+fml.poisson <- as.formula("naffairs~ kids+unhap+notrel+yrsmarr1")
+# modelo
+model.poisson <- glm(fml.poisson, data=df, family=poisson(link="identity"))
+# test de jarque bera
+jarque.bera <- jb.norm.test( model.poisson$residuals )
+jarque.bera
+
+
+```
+# Ejercicio 7.
+Calculad si la combinación de Años de Matrimonio e Hijos da nueva información a nuestro modelo. 
+
+#### Podemos observar que al agregar la variable "yrsmarr1*kids", el modelo arroja que la nueva variable "kids:yrsmarr1" es significativa (pr 2.07e-05), por lo tanto aporta información. No religioso deja de ser significativa. 
+
+
+```{r}
+
+# formula
+fml.yrsmarr.kids <- as.formula("naffairs~ kids+unhap+notrel+yrsmarr1+yrsmarr1*kids")
+# modelo
+model.yrsmarr.kids <- glm(fml.yrsmarr.kids, data=df, family=poisson(link="identity"))
+# resumen
+summary(model.yrsmarr.kids)
+
+```
+
+
+
+# Ejercicio 8.
+Teniendo la combinación de Años de Matrimonio e Hijos metido en el modelo, 
+¿cuál sería el cambio en infidelidades de no tener hijos a tener hijos? 
+
+#### La frecuencia de la persona infiel, al meter la nueva variable, con hijos aumenta de 2.7 a 5.5, ó en otras palabras de 3 a 6 infidelidades.
+
+```{r}
+fml.yrsmarr.kids <- as.formula("naffairs~ kids+unhap+yrsmarr1+yrsmarr1*kids")
+model.yrsmarr.kids <- glm(fml.yrsmarr.kids, data=df, family=poisson(link="identity"))
+values.sinhijos <- as.matrix(c(1,0,1,1,0))
+t(as.matrix(model.yrsmarr.kids$coefficients))%*%values.sinhijos
+values.conhijos <- as.matrix(c(1,1,1,1,1))
+t(as.matrix(model.yrsmarr.kids$coefficients))%*%values.conhijos
+```
+
+
+
+# Ejercicio 9.
+Calculad una variable que convierta las dummies de años de matrimonio en numérica. Calculad también esta misma variable al cuadrado. ¿En teoría hay alguna edad de matrimonio en la que cada año adicional suponga un descenso de las infidelidades? 
+
+#### Repuesta: 
+#### Generamos una nueva variable numérica y la metemos en el modelo, esta vez lm para generar un polinomio. No dimos con un máximo.
+
+
+```{r}
+
+# creamos la nueva variable años de matrimonio (de acuerdo a approach expuesto en video tutoría)
+df$yrsmarr <- 0.75*df$yrsmarr1  + 1.5*df$yrsmarr2 + 4*df$yrsmarr3 + 7*df$yrsmarr4 + 10*df$yrsmarr5 + 15*df$yrsmarr6
+# formula
+fml.yrsmarr.num <- as.formula("naffairs~ kids + unhap + notrel + yrsmarr + yrsmarr*yrsmarr")
+# modelo
+model.yrsmarr.num <- lm(fml.yrsmarr.num, data=df)
+# resumen
+summary(model.yrsmarr.num)
+# probamos con diversos valores de yearsmarr  
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,1))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,2))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,3))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,4))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,5))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,6))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,7))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,8))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,9))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,10))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,11))
+t(as.matrix(model.yrsmarr.num$coefficients))%*% as.matrix(c(1,1,1,1,12))
+```
